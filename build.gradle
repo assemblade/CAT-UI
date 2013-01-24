@@ -1,0 +1,227 @@
+/*
+ * Copyright 2013 Mike Adamson
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+apply plugin: 'java'
+apply plugin: 'eclipse'
+apply plugin: 'idea'
+apply plugin: 'war'
+
+version = '0.0.1'
+
+configurations {
+    tomcatLoggingJars
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    compile 'com.vaadin:vaadin:6.8.7'
+    compile 'com.assemblade.cat:cat-java-client:0.0.2'
+    compile "org.apache.tomcat:servlet-api:6.0.29"
+
+
+    tomcatLoggingJars 'org.apache.tomcat.extras:tomcat-extras-juli:7.0.30'
+    tomcatLoggingJars 'org.apache.tomcat.extras:juli-adapters:6.0.35'
+    tomcatLoggingJars 'log4j:log4j:1.2.17'
+}
+
+ext {
+    tomcatVersion = "6.0.36"
+    tomcatDownloadURL = "http://apache.mirror.anlx.net/tomcat/tomcat-6/v${tomcatVersion}/bin/apache-tomcat-${tomcatVersion}.zip"
+    tomcatZipDestination = "${buildDir}/apache-tomcat-${tomcatVersion}.zip"
+    tomcatHome = "${buildDir}/apache-tomcat-${tomcatVersion}"
+    tomcatZipFile = file("${tomcatZipDestination}")
+}
+
+idea.module.excludeDirs = [ file('.gradle') ]
+
+def boolean isTomcatRunning() {
+    ant.exec (executable: '/bin/bash', spawn: 'false', output: "${project.buildDir}/tmp/tomcatStatus.txt") {
+        ant.arg (value: '-c')
+        ant.arg (value: "ps -efl | grep java | grep ${tomcatHome} | awk '{print \$22}'")
+    }
+
+    return new File("${project.buildDir}/tmp/tomcatStatus.txt").getText('UTF-8').contains("${tomcatHome}");
+}
+
+task fetchTomcat {
+    onlyIf { !file(buildDir).exists() || !tomcatZipFile.exists() }
+    doLast {
+        mkdir(buildDir)
+        if (!tomcatZipFile.exists()) {
+            ant.get(src : "${tomcatDownloadURL}", dest: "${tomcatZipDestination}")
+        }
+    }
+}
+
+task stopTomcat {
+    onlyIf { isTomcatRunning() }
+    doLast {
+        ant.exec (executable: '/bin/bash', spawn: 'false') {
+            ant.arg (value: '-c')
+            ant.arg (value: "ps -efl | grep java | grep ${tomcatHome} | awk '{print \$4}' | xargs -I {} kill -9 {}")
+        }
+    }
+}
+
+task initialiseTomcat(dependsOn: fetchTomcat) {
+    inputs.file "${tomcatZipDestination}"
+    outputs.file "${tomcatHome}/bin"
+
+    doLast {
+        stopTomcat.execute()
+        copy {
+            from zipTree("${tomcatZipDestination}")
+            into "${buildDir}"
+            exclude "**/bin/tomcat-juli.jar"
+            exclude "**/conf/server.xml"
+            exclude "**/webapps/docs/**/*"
+            exclude "**/webapps/examples/**/*"
+            exclude "**/webapps/host-manager/**/*"
+            exclude "**/webapps/manager/**/*"
+            exclude "**/webapps/ROOT/**/*"
+            exclude "**/conf/tomcat-users.xml"
+            setIncludeEmptyDirs false
+        }
+        copy {
+            from configurations.tomcatLoggingJars
+            into "${tomcatHome}/lib"
+            include "juli-adapters*.jar"
+            include "log4j*.jar"
+        }
+        copy {
+            from configurations.tomcatLoggingJars
+            into "${tomcatHome}/bin"
+            include "juli*.jar"
+            exclude "juli-adapters*.jar";
+            rename { String fileName ->
+                fileName.replace('juli-6.0.35', 'tomcat-juli')
+            }
+        }
+        copy {
+            from "${projectDir}/conf"
+            into "${tomcatHome}/lib"
+            include "log4j.properties"
+        }
+        ant.copy (file: "${projectDir}/conf/server.xml.template", tofile: "${tomcatHome}/conf/server.xml") {
+            ant.filterset(begintoken: '${', endtoken: '}' ) {
+                ant.filter(token: 'cat.http.port', value: 12080)
+                ant.filter(token: 'cat.ajp.port', value: 12009)
+                ant.filter(token: 'cat.shutdown.port', value: 12005)
+            }
+        }
+
+        file("${tomcatHome}/logs").mkdirs()
+        file("${tomcatHome}/webapps").mkdirs()
+
+        fileTree(dir: "${tomcatHome}/bin", include: '**/*.sh').each { File f ->
+            f.setExecutable(true, true)
+        }
+    }
+}
+
+task deployApplication(dependsOn: initialiseTomcat) {
+    inputs.file  "${buildDir}/libs/${project.name}-${version}.war"
+    outputs.file  "${tomcatHome}/webapps/${project.name}.war"
+
+    doLast {
+        stopTomcat.execute()
+        ant.delete(dir: "${tomcatHome}/webapps/${project.name}")
+
+        copy {
+            from "${buildDir}/libs/${project.name}-${version}.war"
+            into "${tomcatHome}/webapps"
+            rename "${project.name}-${version}.war", "${project.name}.war"
+        }
+    }
+}
+
+task startTomcat(dependsOn: deployApplication) {
+    onlyIf { !isTomcatRunning() }
+    doLast {
+        println("Starting tomcat")
+        ant.parallel {
+            ant.sequential {
+                ant.exec (executable: '/bin/bash', spawn: 'true') {
+                    ant.arg (value: '-c')
+                    ant.arg (value: "export CATALINA_PID=${tomcatHome}/tomcat.pid; export JAVA_HOME=${System.properties['java.home']}; export JAVA_OPTS=\"-Xmx2048m -XX:MaxPermSize=512m\"; export JPDA_ADDRESS=3456; export JPDA_TRANSPORT=dt_socket; export CATALINA_OPTS=-Djavax.net.debug=ssl,handshake; ${tomcatHome}/bin/catalina.sh jpda start")
+                }
+            }
+            ant.sequential {
+                ant.waitfor (maxwait: 60, maxwaitunit: 'second') {
+                    ant.and {
+                        ant.socket (server: 'localhost', port: 12080)
+                        ant.http(url: 'http://localhost:12080/CAT-UI', errorsBeginAt: 402)
+
+                    }
+                }
+            }
+        }
+    }
+}
+
+task buildDistribution(dependsOn: deployApplication) {
+    doLast {
+        delete(installDir)
+        delete(distDir)
+        mkdir(installDir)
+        mkdir(distDir)
+
+        copy {
+            from "${tomcatHome}"
+            into "${installDir}/cat-server-${version}/cat"
+            exclude "**/conf/server.xml"
+            exclude "**/logs/**/*"
+            exclude "**/work/**/*"
+            exclude "**/temp/**/*"
+            exclude "**/lib/application.properties"
+            exclude "**/webapps/*.war"
+            setIncludeEmptyDirs true
+        }
+        copy {
+            from "${projectDir}/conf"
+            into "${installDir}/cat-server-${version}"
+            include 'installCat'
+            include 'startCat'
+            include 'stopCat'
+        }
+        ant.chmod(file: "${installDir}/cat-server-${version}/installCat", perm: '+x')
+        ant.chmod(file: "${installDir}/cat-server-${version}/startCat", perm: '+x')
+        ant.chmod(file: "${installDir}/cat-server-${version}/stopCat", perm: '+x')
+
+        ant.tar(destfile: "${distDir}/cat-server-${version}.tar.gz", compression: 'gzip') {
+            ant.tarfileset(dir: "${installDir}")  {
+                ant.include(name: "**")
+                ant.exclude(name: "cat-server-${version}/installCat")
+                ant.exclude(name: "cat-server-${version}/startCat")
+                ant.exclude(name: "cat-server-${version}/stopCat")
+                ant.exclude(name: "cat-server-${version}/cat/bin/*.sh")
+            }
+            ant.tarfileset(dir: "${installDir}", filemode: '755')  {
+                ant.include(name: "cat-server-${version}/installCat")
+                ant.include(name: "cat-server-${version}/startCat")
+                ant.include(name: "cat-server-${version}/stopCat")
+                ant.include(name: "cat-server-${version}/cat/bin/*.sh")
+            }
+        }
+    }
+}
+
+
+deployApplication.dependsOn war
+assemble.dependsOn startTomcat
