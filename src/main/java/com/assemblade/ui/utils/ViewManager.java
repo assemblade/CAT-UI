@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.assemblade.ui;
+package com.assemblade.ui.utils;
 
 import com.vaadin.ui.Layout;
 import com.vaadin.ui.Panel;

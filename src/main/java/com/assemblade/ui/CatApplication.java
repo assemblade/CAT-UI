@@ -18,9 +18,10 @@ package com.assemblade.ui;
 
 import com.assemblade.client.model.Authentication;
 import com.assemblade.client.model.User;
+import com.assemblade.ui.utils.ViewManager;
+import com.assemblade.ui.views.LoginScreen;
 import com.vaadin.Application;
 import com.vaadin.terminal.gwt.server.HttpServletRequestListener;
-import com.vaadin.ui.Label;
 import com.vaadin.ui.Window;
 
 import javax.servlet.http.HttpServletRequest;
@@ -79,6 +80,10 @@ public class CatApplication extends Application implements HttpServletRequestLis
 
     public User getUser() {
         return (User)super.getUser();
+    }
+
+    public Window getWindow() {
+        return mainWindow;
     }
 
     public void logout() {

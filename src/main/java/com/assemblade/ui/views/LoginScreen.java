@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.assemblade.ui;
+package com.assemblade.ui.views;
 
 import com.assemblade.client.CallFailedException;
 import com.assemblade.client.ChangePasswordException;
@@ -22,6 +22,7 @@ import com.assemblade.client.ClientException;
 import com.assemblade.client.Login;
 import com.assemblade.client.Users;
 import com.assemblade.client.model.Authentication;
+import com.assemblade.ui.CatApplication;
 import com.vaadin.ui.Alignment;
 import com.vaadin.ui.HorizontalLayout;
 import com.vaadin.ui.LoginForm;
@@ -81,7 +82,7 @@ public class LoginScreen extends VerticalLayout implements LoginForm.LoginListen
             throw new NullPointerException("User must not be null");
         }
         app.setAuthentication(authentication);
-        app.getViewManager().switchScreen(CatView.class.getName(), new CatView(app.getUser()));
+        app.getViewManager().switchScreen(MainScreen.class.getName(), new MainScreen());
     }
 
     void showInvalidPassword() {

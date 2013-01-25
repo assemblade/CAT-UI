@@ -14,24 +14,26 @@
  * limitations under the License.
  */
 
-package com.assemblade.ui;
+package com.assemblade.ui.containers;
 
 import com.assemblade.client.ClientException;
 import com.assemblade.client.Folders;
 import com.assemblade.client.model.Folder;
+import com.assemblade.ui.CatApplication;
 import com.vaadin.data.Container;
 import com.vaadin.data.Item;
 import com.vaadin.data.Property;
+import com.vaadin.data.util.BeanItem;
 import com.vaadin.data.util.MethodProperty;
 
 import java.util.ArrayList;
 import java.util.Collection;
 
-public class FolderTreeContainer implements Container.Hierarchical {
+public class FolderContainer implements Container.Hierarchical {
     private CatApplication app;
     private Folders folders;
 
-    public FolderTreeContainer() {
+    public FolderContainer() {
         app = CatApplication.getInstance();
         folders = new Folders(app.getAuthentication());
     }
@@ -86,7 +88,7 @@ public class FolderTreeContainer implements Container.Hierarchical {
 
     @Override
     public Item getItem(Object itemId) {
-        throw new UnsupportedOperationException();
+        return new BeanItem(itemId);
     }
 
     @Override
@@ -116,7 +118,12 @@ public class FolderTreeContainer implements Container.Hierarchical {
 
     @Override
     public boolean containsId(Object itemId) {
-        throw new UnsupportedOperationException();
+        Folder folder = (Folder)itemId;
+        try {
+            return folders.getFolder(folder.getUrl()) != null;
+        } catch (ClientException e) {
+        }
+        return false;
     }
 
     @Override
